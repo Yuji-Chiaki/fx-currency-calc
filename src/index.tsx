@@ -65,10 +65,10 @@ app.get('/api/exchange-rates', async (c) => {
 app.post('/api/calculate-margin', async (c) => {
   try {
     const body = await c.req.json()
-    const { currencyPair, lots, leverage, rate } = body
+    const { currencyPair, lots, leverage, rate, deposit, lossCutRate } = body
 
     // バリデーション
-    if (!currencyPair || !lots || !leverage || !rate) {
+    if (!currencyPair || !lots || !leverage || !rate || !deposit) {
       return c.json({ 
         success: false, 
         error: '必須パラメータが不足しています' 
@@ -78,11 +78,20 @@ app.post('/api/calculate-margin', async (c) => {
     const lotsNum = parseFloat(lots)
     const leverageNum = parseFloat(leverage)
     const rateNum = parseFloat(rate)
+    const depositNum = parseFloat(deposit)
+    const lossCutRateNum = lossCutRate ? parseFloat(lossCutRate) : 50 // デフォルト50%
 
-    if (isNaN(lotsNum) || isNaN(leverageNum) || isNaN(rateNum)) {
+    if (isNaN(lotsNum) || isNaN(leverageNum) || isNaN(rateNum) || isNaN(depositNum)) {
       return c.json({ 
         success: false, 
         error: '数値が正しくありません' 
+      }, 400)
+    }
+
+    if (lotsNum <= 0 || leverageNum <= 0 || rateNum <= 0 || depositNum <= 0) {
+      return c.json({ 
+        success: false, 
+        error: '正の数値を入力してください' 
       }, 400)
     }
 
@@ -95,6 +104,25 @@ app.post('/api/calculate-margin', async (c) => {
     // 1pipsの価値計算（JPY建て）
     const pipValue = (units * 0.01)
 
+    // 有効証拠金 = 入金証拠金（含み損益はゼロと仮定）
+    const effectiveMargin = depositNum
+
+    // 証拠金維持率 = (有効証拠金 / 必要証拠金) × 100
+    const marginRate = (effectiveMargin / requiredMargin) * 100
+
+    // 余剰証拠金 = 有効証拠金 - 必要証拠金
+    const surplusMargin = effectiveMargin - requiredMargin
+
+    // ロスカットライン計算
+    // ロスカットレート = 現在レート - ((入金証拠金 - 必要証拠金 × ロスカット率) / 取引数量)
+    // 買いポジションの場合
+    const lossCutThreshold = requiredMargin * (lossCutRateNum / 100)
+    const maxLoss = depositNum - lossCutThreshold
+    const lossCutPrice = rateNum - (maxLoss / units)
+
+    // ロスカットまでのpips
+    const pipsToLossCut = (rateNum - lossCutPrice) * 100
+
     return c.json({
       success: true,
       data: {
@@ -102,10 +130,18 @@ app.post('/api/calculate-margin', async (c) => {
         lots: lotsNum,
         leverage: leverageNum,
         rate: rateNum,
+        deposit: depositNum,
         units,
         positionValue: Math.round(positionValue),
         requiredMargin: Math.round(requiredMargin),
-        pipValue: Math.round(pipValue * 100) / 100
+        effectiveMargin: Math.round(effectiveMargin),
+        marginRate: Math.round(marginRate * 100) / 100,
+        surplusMargin: Math.round(surplusMargin),
+        pipValue: Math.round(pipValue * 100) / 100,
+        lossCutRate: lossCutRateNum,
+        lossCutPrice: Math.round(lossCutPrice * 100) / 100,
+        pipsToLossCut: Math.round(pipsToLossCut * 10) / 10,
+        canTrade: surplusMargin >= 0 // 取引可能かどうか
       }
     })
   } catch (error) {
@@ -283,6 +319,26 @@ app.get('/', (c) => {
                                 </label>
                                 <input type="number" id="marginRate" step="0.01" readonly class="w-full px-4 py-3 border border-gray-300 rounded-lg bg-gray-50">
                             </div>
+
+                            <!-- 入金証拠金 -->
+                            <div>
+                                <label class="block text-sm font-semibold text-gray-700 mb-2">
+                                    <i class="fas fa-wallet mr-1"></i>入金証拠金（円）
+                                </label>
+                                <input type="number" id="marginDeposit" step="1000" min="1000" placeholder="100000" class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary focus:border-primary">
+                            </div>
+
+                            <!-- ロスカット率 -->
+                            <div>
+                                <label class="block text-sm font-semibold text-gray-700 mb-2">
+                                    <i class="fas fa-shield-alt mr-1"></i>ロスカット率（%）
+                                </label>
+                                <select id="marginLossCutRate" class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary focus:border-primary">
+                                    <option value="20">20%（一般的）</option>
+                                    <option value="50" selected>50%（国内標準）</option>
+                                    <option value="100">100%（厳格）</option>
+                                </select>
+                            </div>
                         </div>
 
                         <button type="submit" class="w-full bg-primary hover:bg-secondary text-white font-bold py-4 px-6 rounded-lg transition duration-200 transform hover:scale-105 shadow-lg">
@@ -293,7 +349,22 @@ app.get('/', (c) => {
                     <!-- 計算結果表示 -->
                     <div id="marginResult" class="mt-8 hidden">
                         <h3 class="text-xl font-bold text-gray-800 mb-4">計算結果</h3>
-                        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        
+                        <!-- 警告メッセージ -->
+                        <div id="warningMessage" class="mb-4 hidden">
+                            <div class="bg-red-50 border-l-4 border-red-500 p-4 rounded">
+                                <div class="flex">
+                                    <i class="fas fa-exclamation-circle text-red-500 mr-3 mt-1"></i>
+                                    <div>
+                                        <p class="font-bold text-red-800">証拠金不足</p>
+                                        <p class="text-sm text-red-700">入金証拠金が必要証拠金を下回っています。取引できません。</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 基本情報 -->
+                        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
                             <div class="bg-gradient-to-br from-blue-500 to-blue-600 text-white p-6 rounded-lg shadow-lg">
                                 <p class="text-sm opacity-90 mb-1">必要証拠金</p>
                                 <p class="text-3xl font-bold" id="resultMargin">-</p>
@@ -308,6 +379,45 @@ app.get('/', (c) => {
                                 <p class="text-sm opacity-90 mb-1">1pipsの価値</p>
                                 <p class="text-3xl font-bold" id="resultPipValue">-</p>
                                 <p class="text-sm opacity-90 mt-1">円</p>
+                            </div>
+                        </div>
+
+                        <!-- リスク管理情報 -->
+                        <h4 class="text-lg font-bold text-gray-800 mb-3">リスク管理</h4>
+                        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+                            <div class="bg-white border-2 border-gray-200 p-4 rounded-lg">
+                                <p class="text-xs text-gray-600 mb-1">有効証拠金</p>
+                                <p class="text-2xl font-bold text-gray-800" id="resultEffectiveMargin">-</p>
+                                <p class="text-xs text-gray-500 mt-1">円</p>
+                            </div>
+                            <div class="bg-white border-2 border-gray-200 p-4 rounded-lg">
+                                <p class="text-xs text-gray-600 mb-1">証拠金維持率</p>
+                                <p class="text-2xl font-bold" id="resultMarginRate">-</p>
+                                <p class="text-xs text-gray-500 mt-1">%</p>
+                            </div>
+                            <div class="bg-white border-2 border-gray-200 p-4 rounded-lg">
+                                <p class="text-xs text-gray-600 mb-1">余剰証拠金</p>
+                                <p class="text-2xl font-bold" id="resultSurplusMargin">-</p>
+                                <p class="text-xs text-gray-500 mt-1">円</p>
+                            </div>
+                            <div class="bg-white border-2 border-gray-200 p-4 rounded-lg">
+                                <p class="text-xs text-gray-600 mb-1">取引可能</p>
+                                <p class="text-2xl font-bold" id="resultCanTrade">-</p>
+                            </div>
+                        </div>
+
+                        <!-- ロスカット情報 -->
+                        <h4 class="text-lg font-bold text-gray-800 mb-3">ロスカット情報</h4>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div class="bg-gradient-to-br from-red-500 to-red-600 text-white p-6 rounded-lg shadow-lg">
+                                <p class="text-sm opacity-90 mb-1">ロスカットレート</p>
+                                <p class="text-3xl font-bold" id="resultLossCutPrice">-</p>
+                                <p class="text-sm opacity-90 mt-1">円</p>
+                            </div>
+                            <div class="bg-gradient-to-br from-orange-500 to-orange-600 text-white p-6 rounded-lg shadow-lg">
+                                <p class="text-sm opacity-90 mb-1">ロスカットまで</p>
+                                <p class="text-3xl font-bold" id="resultPipsToLossCut">-</p>
+                                <p class="text-sm opacity-90 mt-1">pips</p>
                             </div>
                         </div>
                     </div>

@@ -36,8 +36,8 @@ async function loadExchangeRates() {
       displayRates();
       updateLastUpdate(response.data.timestamp);
       
-      // 30秒ごとに自動更新
-      setTimeout(loadExchangeRates, 30000);
+      // 1分ごとに自動更新
+      setTimeout(loadExchangeRates, 60000);
     }
   } catch (error) {
     console.error('レート読み込みエラー:', error);
@@ -179,8 +179,10 @@ async function calculateMargin(e) {
   const lots = document.getElementById('marginLots').value;
   const leverage = document.getElementById('marginLeverage').value;
   const rate = document.getElementById('marginRate').value;
+  const deposit = document.getElementById('marginDeposit').value;
+  const lossCutRate = document.getElementById('marginLossCutRate').value;
   
-  if (!currencyPair || !lots || !leverage || !rate) {
+  if (!currencyPair || !lots || !leverage || !rate || !deposit) {
     showNotification('すべての項目を入力してください', 'error');
     return;
   }
@@ -190,7 +192,9 @@ async function calculateMargin(e) {
       currencyPair,
       lots,
       leverage,
-      rate
+      rate,
+      deposit,
+      lossCutRate
     });
     
     if (response.data.success) {
@@ -206,9 +210,48 @@ async function calculateMargin(e) {
 
 // 証拠金計算結果表示
 function displayMarginResult(data) {
+  // 基本情報
   document.getElementById('resultMargin').textContent = data.requiredMargin.toLocaleString();
   document.getElementById('resultPosition').textContent = data.positionValue.toLocaleString();
   document.getElementById('resultPipValue').textContent = data.pipValue.toLocaleString();
+  
+  // リスク管理情報
+  document.getElementById('resultEffectiveMargin').textContent = data.effectiveMargin.toLocaleString();
+  document.getElementById('resultSurplusMargin').textContent = data.surplusMargin.toLocaleString();
+  
+  // 証拠金維持率の色分け
+  const marginRateElem = document.getElementById('resultMarginRate');
+  marginRateElem.textContent = data.marginRate.toLocaleString();
+  
+  if (data.marginRate < 100) {
+    marginRateElem.style.color = '#ef4444'; // 赤色（危険）
+  } else if (data.marginRate < 200) {
+    marginRateElem.style.color = '#f59e0b'; // オレンジ色（警告）
+  } else {
+    marginRateElem.style.color = '#10b981'; // 緑色（安全）
+  }
+  
+  // 取引可否
+  const canTradeElem = document.getElementById('resultCanTrade');
+  if (data.canTrade) {
+    canTradeElem.textContent = '✓ 可能';
+    canTradeElem.style.color = '#10b981';
+  } else {
+    canTradeElem.textContent = '✗ 不可';
+    canTradeElem.style.color = '#ef4444';
+  }
+  
+  // ロスカット情報
+  document.getElementById('resultLossCutPrice').textContent = data.lossCutPrice.toLocaleString();
+  document.getElementById('resultPipsToLossCut').textContent = data.pipsToLossCut.toLocaleString();
+  
+  // 警告メッセージ
+  const warningMsg = document.getElementById('warningMessage');
+  if (!data.canTrade) {
+    warningMsg.classList.remove('hidden');
+  } else {
+    warningMsg.classList.add('hidden');
+  }
   
   document.getElementById('marginResult').classList.remove('hidden');
   
