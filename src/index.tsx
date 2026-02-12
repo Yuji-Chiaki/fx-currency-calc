@@ -33,40 +33,40 @@ app.get('/api/currency-pairs', (c) => {
   })
 })
 
-// API: 為替レート取得（Frankfurter API使用）
-// レート取得元: Frankfurter API（欧州中央銀行データ）
+// API: 為替レート取得（FXRatesAPI使用）
+// レート取得元: FXRatesAPI（リアルタイムFX市場レート）
 app.get('/api/exchange-rates', async (c) => {
   try {
-    // Frankfurter APIから各通貨ペアのレートを取得
-    // 基準通貨ごとに取得してJPY建てレートに変換
+    // FXRatesAPI からリアルタイムFXレートを取得
+    const response = await fetch('https://api.fxratesapi.com/latest')
     
-    // まずJPYベースのレートを取得（USD, EUR, GBP, AUD）
-    const mainCurrenciesResponse = await fetch(
-      'https://api.frankfurter.app/latest?from=JPY&to=USD,EUR,GBP,AUD,TRY,MXN,ZAR'
-    )
-    
-    if (!mainCurrenciesResponse.ok) {
+    if (!response.ok) {
       throw new Error('Failed to fetch exchange rates')
     }
     
-    const mainData = await mainCurrenciesResponse.json()
+    const data = await response.json()
     
-    // JPY建てレートに変換（1/レート = XXX/JPY → JPY/XXX）
+    if (!data.success || !data.rates) {
+      throw new Error('Invalid API response')
+    }
+    
+    // USD建てレートからJPY建てレートに変換
+    const usdJpy = data.rates.JPY
+    
     const rates = {
-      USDJPY: parseFloat((1 / mainData.rates.USD).toFixed(2)),
-      EURJPY: parseFloat((1 / mainData.rates.EUR).toFixed(2)),
-      GBPJPY: parseFloat((1 / mainData.rates.GBP).toFixed(2)),
-      AUDJPY: parseFloat((1 / mainData.rates.AUD).toFixed(2)),
-      TRYJPY: parseFloat((1 / mainData.rates.TRY).toFixed(2)),
-      MXNJPY: parseFloat((1 / mainData.rates.MXN).toFixed(2)),
-      ZARJPY: parseFloat((1 / mainData.rates.ZAR).toFixed(2))
+      USDJPY: parseFloat(usdJpy.toFixed(2)),
+      EURJPY: parseFloat((data.rates.JPY / data.rates.EUR).toFixed(2)),
+      GBPJPY: parseFloat((data.rates.JPY / data.rates.GBP).toFixed(2)),
+      AUDJPY: parseFloat((data.rates.JPY / data.rates.AUD).toFixed(2)),
+      TRYJPY: parseFloat((data.rates.JPY / data.rates.TRY).toFixed(2)),
+      MXNJPY: parseFloat((data.rates.JPY / data.rates.MXN).toFixed(2)),
+      ZARJPY: parseFloat((data.rates.JPY / data.rates.ZAR).toFixed(2))
     }
     
     return c.json({ 
       success: true, 
       data: rates,
-      source: 'Frankfurter API (ECB)',
-      date: mainData.date,
+      source: 'FXRatesAPI (Real-time)',
       timestamp: new Date().toISOString()
     })
   } catch (error) {
@@ -74,13 +74,13 @@ app.get('/api/exchange-rates', async (c) => {
     
     // フォールバック: エラー時はデモデータを返す
     const fallbackRates = {
-      USDJPY: 153.45,
+      USDJPY: 152.64,
       EURJPY: 165.28,
-      GBPJPY: 193.72,
-      AUDJPY: 98.65,
-      TRYJPY: 4.92,
-      MXNJPY: 9.18,
-      ZARJPY: 8.35
+      GBPJPY: 208.15,
+      AUDJPY: 108.75,
+      TRYJPY: 3.50,
+      MXNJPY: 8.88,
+      ZARJPY: 9.62
     }
     
     return c.json({ 
