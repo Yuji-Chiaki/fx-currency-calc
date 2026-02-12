@@ -35,6 +35,7 @@ async function loadExchangeRates() {
       exchangeRates = response.data.data;
       displayRates();
       updateLastUpdate(response.data.timestamp);
+      updateRateSource(response.data.source);
       
       // 1分ごとに自動更新
       setTimeout(loadExchangeRates, 60000);
@@ -72,7 +73,15 @@ function displayRates() {
 function updateLastUpdate(timestamp) {
   const elem = document.getElementById('lastUpdate');
   const date = new Date(timestamp);
-  elem.textContent = `最終更新: ${date.toLocaleTimeString('ja-JP')}`;
+  elem.innerHTML = `<i class="fas fa-clock mr-1"></i>最終更新: ${date.toLocaleTimeString('ja-JP')}`;
+}
+
+// レート取得元表示
+function updateRateSource(source) {
+  const elem = document.getElementById('rateSource');
+  if (elem) {
+    elem.innerHTML = `<i class="fas fa-database mr-1"></i>レート取得元: ${source || 'デモデータ'}`;
+  }
 }
 
 // セレクトボックスに通貨ペアを追加

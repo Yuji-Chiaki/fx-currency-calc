@@ -34,23 +34,24 @@ app.get('/api/currency-pairs', (c) => {
 })
 
 // API: 為替レート取得（デモデータ）
-// 本番環境では外部APIを使用してください
+// レート取得元: デモデータ（参考値）
 app.get('/api/exchange-rates', async (c) => {
   try {
-    // デモレート（実際にはExchangeRate-API、Fixer.io等を使用）
+    // 2026年2月時点の想定レート（参考値）
     const rates = {
-      USDJPY: 149.85,
-      EURJPY: 162.45,
-      GBPJPY: 189.75,
-      AUDJPY: 98.32,
-      TRYJPY: 4.58,
-      MXNJPY: 8.95,
-      ZARJPY: 8.12
+      USDJPY: 153.45,    // 米ドル/円
+      EURJPY: 165.28,    // ユーロ/円
+      GBPJPY: 193.72,    // 英ポンド/円
+      AUDJPY: 98.65,     // 豪ドル/円
+      TRYJPY: 4.92,      // トルコリラ/円
+      MXNJPY: 9.18,      // メキシコペソ/円
+      ZARJPY: 8.35       // 南アフリカランド/円
     }
     
     return c.json({ 
       success: true, 
       data: rates,
+      source: 'デモデータ（参考値）',
       timestamp: new Date().toISOString()
     })
   } catch (error) {
@@ -239,7 +240,7 @@ app.get('/', (c) => {
         <!-- ヘッダー -->
         <header class="bg-white shadow-lg">
             <div class="container mx-auto px-4 py-6">
-                <div class="flex items-center justify-between">
+                <div class="flex items-center justify-between flex-wrap gap-4">
                     <div class="flex items-center space-x-3">
                         <i class="fas fa-chart-line text-4xl text-primary"></i>
                         <div>
@@ -247,7 +248,14 @@ app.get('/', (c) => {
                             <p class="text-sm text-gray-600">必要証拠金と損益をかんたん計算</p>
                         </div>
                     </div>
-                    <div id="lastUpdate" class="text-sm text-gray-500"></div>
+                    <div class="text-right">
+                        <div id="rateSource" class="text-xs text-gray-500 mb-1">
+                            <i class="fas fa-database mr-1"></i>レート取得元: 読み込み中...
+                        </div>
+                        <div id="lastUpdate" class="text-xs text-gray-500">
+                            <i class="fas fa-clock mr-1"></i>最終更新: -
+                        </div>
+                    </div>
                 </div>
             </div>
         </header>
