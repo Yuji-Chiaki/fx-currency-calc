@@ -33,32 +33,63 @@ app.get('/api/currency-pairs', (c) => {
   })
 })
 
-// API: 為替レート取得（デモデータ）
-// レート取得元: デモデータ（参考値）
+// API: 為替レート取得（Frankfurter API使用）
+// レート取得元: Frankfurter API（欧州中央銀行データ）
 app.get('/api/exchange-rates', async (c) => {
   try {
-    // 2026年2月時点の想定レート（参考値）
+    // Frankfurter APIから各通貨ペアのレートを取得
+    // 基準通貨ごとに取得してJPY建てレートに変換
+    
+    // まずJPYベースのレートを取得（USD, EUR, GBP, AUD）
+    const mainCurrenciesResponse = await fetch(
+      'https://api.frankfurter.app/latest?from=JPY&to=USD,EUR,GBP,AUD,TRY,MXN,ZAR'
+    )
+    
+    if (!mainCurrenciesResponse.ok) {
+      throw new Error('Failed to fetch exchange rates')
+    }
+    
+    const mainData = await mainCurrenciesResponse.json()
+    
+    // JPY建てレートに変換（1/レート = XXX/JPY → JPY/XXX）
     const rates = {
-      USDJPY: 153.45,    // 米ドル/円
-      EURJPY: 165.28,    // ユーロ/円
-      GBPJPY: 193.72,    // 英ポンド/円
-      AUDJPY: 98.65,     // 豪ドル/円
-      TRYJPY: 4.92,      // トルコリラ/円
-      MXNJPY: 9.18,      // メキシコペソ/円
-      ZARJPY: 8.35       // 南アフリカランド/円
+      USDJPY: parseFloat((1 / mainData.rates.USD).toFixed(2)),
+      EURJPY: parseFloat((1 / mainData.rates.EUR).toFixed(2)),
+      GBPJPY: parseFloat((1 / mainData.rates.GBP).toFixed(2)),
+      AUDJPY: parseFloat((1 / mainData.rates.AUD).toFixed(2)),
+      TRYJPY: parseFloat((1 / mainData.rates.TRY).toFixed(2)),
+      MXNJPY: parseFloat((1 / mainData.rates.MXN).toFixed(2)),
+      ZARJPY: parseFloat((1 / mainData.rates.ZAR).toFixed(2))
     }
     
     return c.json({ 
       success: true, 
       data: rates,
-      source: 'デモデータ（参考値）',
+      source: 'Frankfurter API (ECB)',
+      date: mainData.date,
       timestamp: new Date().toISOString()
     })
   } catch (error) {
+    console.error('Exchange rate fetch error:', error)
+    
+    // フォールバック: エラー時はデモデータを返す
+    const fallbackRates = {
+      USDJPY: 153.45,
+      EURJPY: 165.28,
+      GBPJPY: 193.72,
+      AUDJPY: 98.65,
+      TRYJPY: 4.92,
+      MXNJPY: 9.18,
+      ZARJPY: 8.35
+    }
+    
     return c.json({ 
-      success: false, 
-      error: 'レート取得に失敗しました' 
-    }, 500)
+      success: true, 
+      data: fallbackRates,
+      source: 'フォールバックデータ（参考値）',
+      error: 'API取得失敗のためフォールバック',
+      timestamp: new Date().toISOString()
+    })
   }
 })
 
